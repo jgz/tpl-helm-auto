@@ -1,8 +1,8 @@
 # tpl-helm-auto
 
-Template for a project that automatically builds container images and helm charts with project source code baked into the image.
+Template for a project that automatically builds container images and helm charts with project source code baked into the image. 
 
-The basic version of this project uses a nginx:alpine image base to host a simple static website.
+The basic version of this project uses a [nginx:alpine](https://hub.docker.com/_/nginx) image base to host a simple static website.
 
 ### Local Development
 
@@ -24,7 +24,7 @@ Site will be available at [http://localhost:8080/](http://localhost:8080/)
 
 ### Extending this template
 
-The main way you would extend this is by modifying the DockerFile to load a different base image and then modifying it from there to suit your needs, 
+The main way you would extend this is by updating the DockerFile to load a different base image and then modifying it from there to suit your needs, 
 
 ### Github actions
 
