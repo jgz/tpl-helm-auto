@@ -1,6 +1,8 @@
 name: Publish ghcr.io
 
 # this workflow will build the image/chart using the values provided in .env
+# when a release is published. The chart will be attached as a file to the release.
+
 
 on:
   release:
