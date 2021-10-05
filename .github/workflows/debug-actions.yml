@@ -1,0 +1,30 @@
+name: Debug Actions
+
+on:
+  push:
+    branches: [ main ]
+
+
+jobs:
+  debug:
+    name: Debug
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Load Config to ENV
+        id: dotenv
+        uses: falti/dotenv-action@v0.2.7
+        with:
+          log-variables: true
+    
+      - name: Dump env
+        run: env | sort
+      - name: Dump GitHub context
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+          STEPS: ${{ toJson(steps)}}
+        run: | 
+          echo "$GITHUB_CONTEXT" \
+          echo "$STEPS"

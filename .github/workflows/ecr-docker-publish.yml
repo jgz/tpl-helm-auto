@@ -1,0 +1,120 @@
+name: Publish AWS ECR
+
+# This workflow will upload the image and chart to an a private AWS ECR/S3 bucket
+
+# The following secrets must be set up on the projects
+# AWS_ACCESS_KEY_ID
+# AWS_SECRET_ACCESS_KEY
+# ECR_REGISTRY=<aws-account-id>.dkr.ecr.<aws-region>.amazonaws.com
+# S3_HELM_REPO=s3://s3-helm-repo-bucket
+
+# you also need to create the repo's in ECR for the image and chart and init the helm repo in s3.
+
+on:
+  release:
+    types: [ published ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+
+      # Load values from .env
+      # https://github.com/falti/dotenv-action
+      - name: Load Release Config 
+        id: dotenv
+        uses: falti/dotenv-action@v0.2.7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      # Extract metadata (tags, labels) for Docker
+      # https://github.com/docker/metadata-action
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@3a3bb3a81753dc99f090d24ee7e5343838b73a96
+        with:
+          flavor: |
+            latest=false
+          images: ${{ secrets.ECR_REGISTRY }}/${{ steps.dotenv.outputs.project_name }}
+          tags: |
+            type=semver,pattern={{version}}
+
+      # Build and push Docker image with Buildx (don't push on PR)
+      # https://github.com/docker/build-push-action
+      - name: Build and push Docker image
+        uses: docker/build-push-action@a66e35b9cbcf4ad0ea91ffcaf7bbad63ad9e0229
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # install helm
+      - name: Install Helm
+        uses: azure/setup-helm@v1
+        with:
+          version: v3.7.0
+
+      # Update the charts with the values from .env and the current job
+      - name: Package Chart
+        env: 
+          VERSION: ${{ steps.meta.outputs.version }}
+          REPO: ""
+          REGISTRY: ${{ secrets.ECR_REGISTRY }}
+          NAME: ${{ steps.dotenv.outputs.project_name }}
+          HOST: ${{ steps.dotenv.outputs.project_host }}
+        run: |
+          sed -i "s/PROJECT_NAME/$NAME/g" chart/values.yaml 
+          sed -i "s/REPO/$REPO/g" chart/values.yaml
+          sed -i "s?PROJECT_HOST?$HOST?g" chart/values.yaml
+          sed -i "s?REGISTRY?$REGISTRY?g" chart/values.yaml
+
+          sed -i "s/PROJECT_NAME/$NAME/g" chart/Chart.yaml
+          sed -i "s/RELEASE_VERSION/$VERSION/g" chart/Chart.yaml
+          
+          TMPDIR=/tmp/helm-package/$NAME-chart
+          mkdir -p $TMPDIR
+          mkdir -p charts/
+          cp -r chart/* $TMPDIR
+
+          helm package $TMPDIR -d charts/
+
+
+      - name: Publish Chart to ECR and S3
+        env: 
+          VERSION: ${{ steps.meta.outputs.version }}
+          REPO: ""
+          REGISTRY: ${{ secrets.ECR_REGISTRY }}/
+          NAME: ${{ steps.dotenv.outputs.project_name }}
+          HOST: ${{ steps.dotenv.outputs.project_host }}
+          HELM_REPO: ${{ secrets.S3_HELM_REPO }}
+          HELM_EXPERIMENTAL_OCI: 1
+        run: |
+          aws ecr get-login-password \
+            --region $AWS_REGION | helm registry login \
+            --username AWS \
+            --password-stdin $REGISTRY
+          
+          chart=charts/$NAME-chart-$VERSION.tgz
+          helm push $chart oci://$REGISTRY
+
+          helm plugin install https://github.com/hypnoglow/helm-s3.git
+          helm repo add s3-repo $HELM_REPO
+          helm s3 push --relative $chart s3-repo
